@@ -1,0 +1,56 @@
+# Backend (.NET)
+backend/**/bin/
+backend/**/obj/
+backend/**/packages/
+backend/**/.vs/
+backend/**/Debug/
+backend/**/Release/
+backend/**/*.user
+backend/**/*.suo
+backend/**/node_modules/
+backend/**/Content/images/*.jpg
+backend/**/Content/images/*.png
+backend/**/Content/images/*.webp
+
+# Frontend (Next.js & Flutter Dono ke Rules)
+[Ff]rontend/.next/
+[Ff]rontend/out/
+[Ff]rontend/node_modules/
+[Ff]rontend/.env*.local
+[Ff]rontend/.env
+[Ff]rontend/.dart_tool/
+[Ff]rontend/build/
+[Ff]rontend/.flutter-plugins
+[Ff]rontend/.flutter-plugins-dependencies
+[Ff]rontend/android/.gradle/
+[Ff]rontend/android/**/build/
+[Ff]rontend/macos/Flutter/ephemeral/
+[Ff]rontend/linux/flutter/ephemeral/
+[Ff]rontend/windows/flutter/ephemeral/
+[Ff]rontend/**/*.iml
+[Ff]rontend/**/.metadata
+[Ff]rontend/pubspec.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Archives
+*.7z
+*.zip
+*.rar
+*.tar.gz
+
+# Database backups (keep .bacpac only)
+database/*.mdf
+database/*.ldf
+database/*.ndf
