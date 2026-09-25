@@ -5,6 +5,24 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { getImageUrl } from '@/utils/getImageUrl';
 
+// ============================================================================
+// PAGE: My Bookings (/my-bookings)
+// DESCRIPTION:
+//   Owner Dashboard for managing rental requests on outfits uploaded by the owner:
+//   - Accept or Reject incoming rental bookings
+//   - Confirm Handover / Dispatch outfit to customer
+//   - Confirm Return of outfit after rental completion
+//
+// BACKEND API REFERENCES:
+//   - GET  /api/rentals/owner/{id}        -> Fetch owner incoming bookings (RentalsController.GetOwnerRentals)
+//   - POST /api/rentals/update-status     -> Update booking lifecycle status (RentalsController.UpdateStatus)
+//
+// DATABASE TABLES LINKED:
+//   - dbo.Bookings (BookingId, CustomerId, OwnerId, DressId, StartDate, EndDate, Status, TotalPrice)
+//   - dbo.Dresses (D_id, Title, RentPrice)
+//   - dbo.Users (U_id, Name, Contact)
+// ============================================================================
+
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 // ─── Status config — Owner View ───

@@ -6,14 +6,34 @@ import toast from 'react-hot-toast';
 import { getImageUrl } from '@/utils/getImageUrl';
 import { formatDressAge } from '@/utils/formatters';
 
+// ============================================================================
+// PAGE: Book Dress (/dress/[id]/book)
+// DESCRIPTION:
+//   Handles the complete customer booking workflow:
+//   - Size quantity selection
+//   - Rental date range selection (Start & End dates)
+//   - Inventory availability check (via backend check endpoint)
+//   - Credit balance & penalty adjustments calculation
+//   - Delivery address selection or new address addition
+//   - Final booking confirmation
+//
+// BACKEND API REFERENCES:
+//   - GET  /api/dresses/{id}                 -> Get dress details (DressesController.GetDressById)
+//   - GET  /api/bookings/credit/{userId}    -> Get user credit/penalty balance (BookingsController.GetUserCredit)
+//   - GET  /api/users/{userId}/addresses    -> Get user saved delivery addresses (UsersController.GetUserAddresses)
+//   - POST /api/users/add-address           -> Add new user address (UsersController.AddAddress)
+//   - POST /api/bookings/check              -> Verify stock availability (BookingsController.CheckAvailability)
+//   - POST /api/bookings/confirm            -> Confirm rental booking (BookingsController.ConfirmBooking)
+//
+// DATABASE TABLES LINKED:
+//   - dbo.Bookings (BookingId, CustomerId, OwnerId, DressId, StartDate, EndDate, Status, TotalPrice, etc.)
+//   - dbo.BookingItems (BookingItemId, BookingId, SizeId, Quantity, UnitPrice)
+//   - dbo.UserAddresses (UA_id, U_id, Address)
+//   - dbo.Users (U_id, CreditBalance, etc.)
+// ============================================================================
+
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 
-const STATIC_SIZES = [
-  { Size_id: 1, SizeName: 'S' },
-  { Size_id: 2, SizeName: 'M' },
-  { Size_id: 3, SizeName: 'L' },
-  { Size_id: 4, SizeName: 'XL' },
-];
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -48,11 +68,16 @@ export default function BookingPage() {
 
     const user = JSON.parse(u);
 
-    // Fetch user profile (to get latest penalty balance)
-    fetch(`${API}/users/${user.userId}/profile`)
+    // Fetch user credit / penalty balance
+    fetch(`${API}/bookings/credit/${user.userId}`)
       .then(res => res.ok ? res.json() : null)
-      .then(profile => {
-        if (profile) setUserProfile(profile);
+      .then(creditData => {
+        if (creditData) {
+          setUserProfile({
+            PenaltyBalance: creditData.CreditBalance < 0 ? Math.abs(creditData.CreditBalance) : 0,
+            CreditBalance: creditData.CreditBalance,
+          });
+        }
       })
       .catch(() => {});
 
@@ -68,14 +93,11 @@ export default function BookingPage() {
         if (d.SizesWithQuantity && d.SizesWithQuantity.length > 0) {
           sizesList = d.SizesWithQuantity;
         } else if (d.Sizes && d.Sizes.length > 0) {
-          sizesList = d.Sizes.map(name => {
-            const staticItem = STATIC_SIZES.find(s => s.SizeName === name);
-            return {
-              SizeId: staticItem ? staticItem.Size_id : 1,
-              SizeName: name,
-              Quantity: 1,
-            };
-          });
+          sizesList = d.Sizes.map((name, idx) => ({
+            SizeId: idx + 1,
+            SizeName: typeof name === 'string' ? name : (name.SizeName || 'Standard'),
+            Quantity: 1,
+          }));
         }
         setAvailableSizes(sizesList);
 
@@ -220,7 +242,8 @@ export default function BookingPage() {
 
       if (!res.ok) throw new Error(data.Message || 'Booking failed');
 
-      router.push(`/booking/success?bookingId=${data.BookingId}&total=${data.TotalPrice}&dress=${encodeURIComponent(dressTitle)}`);
+      const totalAmount = data.FinalTotal ?? data.OrderTotal ?? data.TotalPrice ?? 0;
+      router.push(`/booking/success?bookingId=${data.BookingId}&total=${totalAmount}&dress=${encodeURIComponent(dressTitle)}`);
 
     } catch (err) {
       toast.error(err.message);

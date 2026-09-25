@@ -4,16 +4,34 @@ import Link from 'next/link';
 import { getImageUrl } from '@/utils/getImageUrl';
 import { formatDressAge } from '@/utils/formatters';
 
+// ============================================================================
+// PAGE: Browse Dresses (/browse)
+// DESCRIPTION:
+//   Search and filter dresses using dynamic criteria:
+//   - Categories & Subcategories (Bridal, Groom, Formal, etc.)
+//   - Sizes (S, M, L, XL, etc.)
+//   - Gender & Occasions (Barat, Walima, Mehndi, etc.)
+//   - Dress Age in months & Condition rating
+//   - GPS "Near Me" Radius Filter (using Latitude & Longitude)
+//   - Booking Date range availability
+//
+// BACKEND API REFERENCES:
+//   - POST /api/dresses/filter                      -> Filter & search dresses (DressesController.FilterDresses)
+//   - GET  /api/dresses/categories                  -> Get all categories (DressesController.GetCategories)
+//   - GET  /api/dresses/categories/{id}/subcategories -> Get subcategories (DressesController.GetSubCategories)
+//   - GET  /api/dresses/sizes                       -> Get all standard sizes (DressesController.GetSizes)
+//
+// DATABASE TABLES LINKED:
+//   - dbo.Dresses (Title, RentPrice, Condition, AgeInMonths, Latitude, Longitude, etc.)
+//   - dbo.Categories (Category_id, Cname)
+//   - dbo.SubCategories (SubCategory_id, SCname, Category_id)
+//   - dbo.Sizes (Size_id, SizeName)
+//   - dbo.DressSizes (D_id, Size_id, Quantity)
+// ============================================================================
+
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 const OCCASIONS = ['Barat', 'Walima', 'Mehndi', 'Engagement', 'Party', 'Nikkah'];
-const SIZES = ['S', 'M', 'L', 'XL'];
-const SIZE_ID_MAP = { 'S': 1, 'M': 2, 'L': 3, 'XL': 4 };
-
-const CITIES = [
-  'Lahore', 'Karachi', 'Islamabad', 'Rawalpindi', 'Faisalabad',
-  'Multan', 'Peshawar', 'Quetta', 'Gujranwala', 'Sialkot'
-];
 
 const AGE_OPTIONS = [
   { label: 'Brand New (< 3 Months)', value: 3 },
@@ -22,10 +40,6 @@ const AGE_OPTIONS = [
   { label: 'Under 2 Years', value: 24 },
   { label: 'Any Age', value: '' },
 ];
-
-const BRIDAL_SUBS = ['Lehnga Choli', 'Maxi', 'Saree', 'Sharara / Gharara', 'Shirt With Lehnga'];
-const GROOM_SUBS = ['Sherwani', 'Kurta Pajama', '3-Piece Suits', 'Prince Coats', 'Waist Coats'];
-const FORMAL_SUBS = ['Lehnga Choli', 'Gowns', 'Saris', 'Sharara / Gharara', '3-Piece Suits', 'Kurta Pajama'];
 
 const CONDITIONS = [
   { label: '10/10', value: 10 },
@@ -39,19 +53,6 @@ const CONDITIONS = [
   { label: '2/10', value: 2 },
   { label: '1/10', value: 1 },
 ];
-
-const SUB_ID_MAP = {
-  'Lehnga Choli': 1, 'Maxi': 2, 'Saree': 3,
-  'Sharara / Gharara': 4, 'Shirt With Lehnga': 5,
-  'Sherwani': 6, 'Kurta Pajama': 7, '3-Piece Suits': 8,
-  'Prince Coats': 9, 'Waist Coats': 10,
-  'Gowns': 12, 'Saris': 13,
-};
-
-const FORMAL_SUB_ID_MAP = {
-  'Lehnga Choli': 11, 'Gowns': 12, 'Saris': 13,
-  'Sharara / Gharara': 4, '3-Piece Suits': 14, 'Kurta Pajama': 15,
-};
 
 function Chip({ label, active, onClear, children }) {
   const [open, setOpen] = useState(false);
@@ -128,47 +129,50 @@ export default function BrowsePage() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
 
-  const [bridalSub, setBridalSub] = useState('');
-  const [groomSub, setGroomSub] = useState('');
-  const [formalSub, setFormalSub] = useState('');
+  // Dynamic lists from backend
+  const [categories, setCategories] = useState([]);
+  const [subCategoriesMap, setSubCategoriesMap] = useState({});
+  const [sizes, setSizes] = useState([]);
+
+  // Active filter state
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
+  const [selectedSubCategoryId, setSelectedSubCategoryId] = useState(null);
   const [gender, setGender] = useState('');
   const [occasion, setOccasion] = useState('');
-  const [city, setCity] = useState('');
   const [maxAgeInMonths, setMaxAgeInMonths] = useState('');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
-  const [selectedSizes, setSelectedSizes] = useState([]);
+  const [selectedSizeIds, setSelectedSizeIds] = useState([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [minCondition, setMinCondition] = useState('');
-
-  useEffect(() => { fetchDresses({}); }, []);
-
-  const getActiveSubCategoryId = (bSub, gSub, fSub) => {
-    if (bSub) return SUB_ID_MAP[bSub] || null;
-    if (gSub) return SUB_ID_MAP[gSub] || null;
-    if (fSub) return FORMAL_SUB_ID_MAP[fSub] || null;
-    return null;
-  };
+  const [nearMe, setNearMe] = useState(false);
+  const [userLat, setUserLat] = useState(null);
+  const [userLng, setUserLng] = useState(null);
+  const [maxKm, setMaxKm] = useState(50);
 
   const fetchDresses = async (filters) => {
     setLoading(true);
     try {
       const body = {};
       if (filters.search) body.Search = filters.search;
-      if (filters.categoryId) body.CategoryId = filters.categoryId;
-      if (filters.subCategoryId) body.SubCategoryId = filters.subCategoryId;
+      if (filters.categoryId) body.CategoryId = Number(filters.categoryId);
+      if (filters.subCategoryId) body.SubCategoryId = Number(filters.subCategoryId);
       if (filters.gender) body.Gender = filters.gender;
       if (filters.occasion) body.Occasion = filters.occasion;
-      if (filters.city) body.City = filters.city;
-      if (filters.maxAgeInMonths) body.MaxAgeInMonths = Number(filters.maxAgeInMonths);
+      if (filters.maxAgeInMonths) body.ToAgeMonths = Number(filters.maxAgeInMonths);
       if (filters.minPrice) body.MinPrice = Number(filters.minPrice);
       if (filters.maxPrice) body.MaxPrice = Number(filters.maxPrice);
       if (filters.startDate) body.StartDate = filters.startDate;
       if (filters.endDate) body.EndDate = filters.endDate;
-      if (filters.minCondition) body.MinCondition = Number(filters.minCondition);
-      if (filters.selectedSizes && filters.selectedSizes.length > 0) {
-        body.SizeIds = filters.selectedSizes.map(s => SIZE_ID_MAP[s]).filter(Boolean);
+      if (filters.minCondition) body.Condition = Number(filters.minCondition);
+      if (filters.userLat && filters.userLng) {
+        body.UserLat = Number(filters.userLat);
+        body.UserLng = Number(filters.userLng);
+        body.MaxKm = Number(filters.maxKm || 50);
+      }
+      if (filters.selectedSizeIds && filters.selectedSizeIds.length > 0) {
+        body.SizeIds = filters.selectedSizeIds;
       }
 
       const res = await fetch(`${API}/dresses/filter`, {
@@ -184,14 +188,45 @@ export default function BrowsePage() {
     setLoading(false);
   };
 
-  const doSearch = (overrides = {}) => {
-    const bSub = overrides.bridalSub !== undefined ? overrides.bridalSub : bridalSub;
-    const gSub = overrides.groomSub !== undefined ? overrides.groomSub : groomSub;
-    const fSub = overrides.formalSub !== undefined ? overrides.formalSub : formalSub;
+  useEffect(() => {
+    // Fetch categories and their subcategories dynamically
+    fetch(`${API}/dresses/categories`)
+      .then(res => res.json())
+      .then(cats => {
+        if (Array.isArray(cats)) {
+          setCategories(cats);
+          cats.forEach(c => {
+            fetch(`${API}/dresses/categories/${c.Category_id}/subcategories`)
+              .then(sr => sr.json())
+              .then(subs => {
+                if (Array.isArray(subs)) {
+                  setSubCategoriesMap(prev => ({ ...prev, [c.Category_id]: subs }));
+                }
+              })
+              .catch(() => {});
+          });
+        }
+      })
+      .catch(() => {});
 
-    const catId = bSub ? 1 : gSub ? 2 : fSub ? 3 : null;
-    const subId = getActiveSubCategoryId(bSub, gSub, fSub);
-    const gen = bSub ? 'Female' : gSub ? 'Male' : (overrides.gender !== undefined ? overrides.gender : gender);
+    // Fetch sizes dynamically
+    fetch(`${API}/dresses/sizes`)
+      .then(res => res.json())
+      .then(sList => {
+        if (Array.isArray(sList)) setSizes(sList);
+      })
+      .catch(() => {});
+
+    const timer = setTimeout(() => {
+      fetchDresses({});
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const doSearch = (overrides = {}) => {
+    const catId = overrides.selectedCategoryId !== undefined ? overrides.selectedCategoryId : selectedCategoryId;
+    const subId = overrides.selectedSubCategoryId !== undefined ? overrides.selectedSubCategoryId : selectedSubCategoryId;
+    const gen = overrides.gender !== undefined ? overrides.gender : gender;
 
     fetchDresses({
       search,
@@ -199,44 +234,80 @@ export default function BrowsePage() {
       subCategoryId: subId,
       gender: gen,
       occasion: overrides.occasion !== undefined ? overrides.occasion : occasion,
-      city: overrides.city !== undefined ? overrides.city : city,
       maxAgeInMonths: overrides.maxAgeInMonths !== undefined ? overrides.maxAgeInMonths : maxAgeInMonths,
       minPrice,
       maxPrice,
-      selectedSizes: overrides.selectedSizes !== undefined ? overrides.selectedSizes : selectedSizes,
+      selectedSizeIds: overrides.selectedSizeIds !== undefined ? overrides.selectedSizeIds : selectedSizeIds,
       startDate,
       endDate,
       minCondition: overrides.minCondition !== undefined ? overrides.minCondition : minCondition,
+      userLat: overrides.userLat !== undefined ? overrides.userLat : userLat,
+      userLng: overrides.userLng !== undefined ? overrides.userLng : userLng,
+      maxKm: overrides.maxKm !== undefined ? overrides.maxKm : maxKm,
     });
   };
 
+  const toggleNearMe = () => {
+    if (nearMe) {
+      setNearMe(false);
+      setUserLat(null);
+      setUserLng(null);
+      doSearch({ userLat: null, userLng: null });
+    } else {
+      if (typeof window !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            setNearMe(true);
+            setUserLat(lat);
+            setUserLng(lng);
+            doSearch({ userLat: lat, userLng: lng, maxKm });
+          },
+          () => {
+            alert('Could not get GPS location. Please allow browser location permissions.');
+          }
+        );
+      }
+    }
+  };
+
   const clearAll = () => {
-    setSearch(''); setBridalSub(''); setGroomSub('');
-    setFormalSub(''); setGender(''); setOccasion('');
-    setCity(''); setMaxAgeInMonths('');
-    setMinPrice(''); setMaxPrice(''); setSelectedSizes([]);
-    setStartDate(''); setEndDate('');
+    setSearch('');
+    setSelectedCategoryId(null);
+    setSelectedSubCategoryId(null);
+    setGender('');
+    setOccasion('');
+    setMaxAgeInMonths('');
+    setMinPrice('');
+    setMaxPrice('');
+    setSelectedSizeIds([]);
+    setStartDate('');
+    setEndDate('');
     setMinCondition('');
+    setNearMe(false);
+    setUserLat(null);
+    setUserLng(null);
     fetchDresses({});
   };
 
   const today = new Date().toISOString().split('T')[0];
 
-  const hasFilters = bridalSub || groomSub || formalSub || gender || occasion
-    || city || maxAgeInMonths || minPrice || maxPrice || selectedSizes.length > 0 || startDate || minCondition;
+  const hasFilters = selectedCategoryId || selectedSubCategoryId || gender || occasion
+    || maxAgeInMonths || minPrice || maxPrice || selectedSizeIds.length > 0 || startDate || minCondition || nearMe;
 
-  const bridalLabel = bridalSub || 'Bridal';
-  const groomLabel = groomSub || 'Groom';
-  const formalLabel = formalSub || 'Formal';
-  const autoGender = bridalSub ? 'Female' : groomSub ? 'Male' : gender;
-  const genderLabel = autoGender || 'Gender';
-  const cityLabel = city || 'City / Location';
   const ageLabel = maxAgeInMonths ? `< ${maxAgeInMonths} Months` : 'Dress Age';
   const priceLabel = (minPrice || maxPrice) ? `Rs.${minPrice || '0'} – ${maxPrice || '∞'}` : 'Price';
-  const sizeLabel = selectedSizes.length > 0 ? `Size: ${selectedSizes.join(', ')}` : 'Size';
+  
+  const selectedSizeNames = sizes
+    .filter(s => selectedSizeIds.includes(s.Size_id))
+    .map(s => s.SizeName);
+  const sizeLabel = selectedSizeNames.length > 0 ? `Size: ${selectedSizeNames.join(', ')}` : 'Size';
+  
   const occasionLabel = occasion || 'Occasion';
   const dateLabel = startDate || 'Date';
   const conditionLabel = minCondition ? `${minCondition}/10` : 'Condition';
+  const genderLabel = gender || 'Gender';
 
   return (
     <div style={{ minHeight: '100vh', background: '#FAF7F2' }}>
@@ -265,19 +336,66 @@ export default function BrowsePage() {
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
 
-          {/* CITY CHIP */}
-          <Chip label={cityLabel} active={!!city} onClear={() => { setCity(''); doSearch({ city: '' }); }}>
-            {({ close }) => (<>
-              <div style={{ padding: '10px 16px 6px', borderBottom: '1px solid #E8E0E4' }}>
-                <span style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: '#7A6E72' }}>Select City</span>
-              </div>
-              {CITIES.map(c => (
-                <SubItem key={c} label={c} selected={city === c}
-                  onClick={() => setCity(city === c ? '' : c)} />
-              ))}
-              <ApplyBtn onClick={() => { doSearch(); close(); }} />
-            </>)}
-          </Chip>
+          {/* DYNAMIC CATEGORY CHIPS */}
+          {categories.map(cat => {
+            const isCategoryActive = selectedCategoryId === cat.Category_id;
+            const subs = subCategoriesMap[cat.Category_id] || [];
+            const activeSub = subs.find(s => s.SubCategory_id === selectedSubCategoryId);
+            const label = (isCategoryActive && activeSub) ? `${cat.Cname}: ${activeSub.SCname}` : cat.Cname;
+
+            return (
+              <Chip
+                key={cat.Category_id}
+                label={label}
+                active={isCategoryActive}
+                onClear={() => {
+                  setSelectedCategoryId(null);
+                  setSelectedSubCategoryId(null);
+                  doSearch({ selectedCategoryId: null, selectedSubCategoryId: null });
+                }}
+              >
+                {({ close }) => (<>
+                  <div style={{ padding: '10px 16px 6px', borderBottom: '1px solid #E8E0E4' }}>
+                    <span style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: '#7A6E72' }}>
+                      {cat.Cname} Subcategories
+                    </span>
+                  </div>
+
+                  {/* Option to select the whole category without specific subcategory */}
+                  <SubItem
+                    label={`All ${cat.Cname}`}
+                    selected={isCategoryActive && !selectedSubCategoryId}
+                    onClick={() => {
+                      const autoGen = cat.Cname === 'Bridal' ? 'Female' : cat.Cname === 'Groom' ? 'Male' : gender;
+                      setSelectedCategoryId(cat.Category_id);
+                      setSelectedSubCategoryId(null);
+                      if (autoGen) setGender(autoGen);
+                    }}
+                  />
+
+                  {subs.map(sub => (
+                    <SubItem
+                      key={sub.SubCategory_id}
+                      label={sub.SCname}
+                      selected={selectedSubCategoryId === sub.SubCategory_id}
+                      onClick={() => {
+                        const isSame = selectedSubCategoryId === sub.SubCategory_id;
+                        const autoGen = cat.Cname === 'Bridal' ? 'Female' : cat.Cname === 'Groom' ? 'Male' : gender;
+                        if (isSame) {
+                          setSelectedSubCategoryId(null);
+                        } else {
+                          setSelectedCategoryId(cat.Category_id);
+                          setSelectedSubCategoryId(sub.SubCategory_id);
+                          if (autoGen) setGender(autoGen);
+                        }
+                      }}
+                    />
+                  ))}
+                  <ApplyBtn onClick={() => { doSearch(); close(); }} />
+                </>)}
+              </Chip>
+            );
+          })}
 
           {/* DRESS AGE CHIP */}
           <Chip label={ageLabel} active={!!maxAgeInMonths} onClear={() => { setMaxAgeInMonths(''); doSearch({ maxAgeInMonths: '' }); }}>
@@ -293,78 +411,21 @@ export default function BrowsePage() {
             </>)}
           </Chip>
 
-          {/* BRIDAL CHIP */}
-          <Chip label={bridalLabel} active={!!bridalSub} onClear={() => { setBridalSub(''); setGender(''); doSearch({ bridalSub: '' }); }}>
-            {({ close }) => (<>
-              <div style={{ padding: '10px 16px 6px', borderBottom: '1px solid #E8E0E4' }}>
-                <span style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: '#7A6E72' }}>Bridal — Female</span>
-              </div>
-              {BRIDAL_SUBS.map(sub => (
-                <SubItem key={sub} label={sub} selected={bridalSub === sub}
-                  onClick={() => {
-                    setBridalSub(bridalSub === sub ? '' : sub);
-                    setGroomSub(''); setFormalSub('');
-                    setGender('Female');
-                  }} />
-              ))}
-              <ApplyBtn onClick={() => { doSearch(); close(); }} />
-            </>)}
-          </Chip>
-
-          {/* GROOM CHIP */}
-          <Chip label={groomLabel} active={!!groomSub} onClear={() => { setGroomSub(''); setGender(''); doSearch({ groomSub: '' }); }}>
-            {({ close }) => (<>
-              <div style={{ padding: '10px 16px 6px', borderBottom: '1px solid #E8E0E4' }}>
-                <span style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: '#7A6E72' }}>Groom — Male</span>
-              </div>
-              {GROOM_SUBS.map(sub => (
-                <SubItem key={sub} label={sub} selected={groomSub === sub}
-                  onClick={() => {
-                    setGroomSub(groomSub === sub ? '' : sub);
-                    setBridalSub(''); setFormalSub('');
-                    setGender('Male');
-                  }} />
-              ))}
-              <ApplyBtn onClick={() => { doSearch(); close(); }} />
-            </>)}
-          </Chip>
-
-          {/* FORMAL CHIP */}
-          <Chip label={formalLabel} active={!!formalSub} onClear={() => { setFormalSub(''); doSearch({ formalSub: '' }); }}>
-            {({ close }) => (<>
-              <div style={{ padding: '10px 16px 6px', borderBottom: '1px solid #E8E0E4' }}>
-                <span style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: '#7A6E72' }}>Formal</span>
-              </div>
-              {FORMAL_SUBS.map(sub => (
-                <SubItem key={sub} label={sub} selected={formalSub === sub}
-                  onClick={() => { setFormalSub(formalSub === sub ? '' : sub); setBridalSub(''); setGroomSub(''); }} />
-              ))}
-              <ApplyBtn onClick={() => { doSearch(); close(); }} />
-            </>)}
-          </Chip>
-
           <div style={{ width: '1px', height: '28px', background: '#E8E0E4', margin: '0 2px' }} />
 
           {/* GENDER CHIP */}
           <Chip
             label={genderLabel}
-            active={!!autoGender}
-            onClear={!bridalSub && !groomSub ? () => { setGender(''); doSearch({ gender: '' }); } : null}
+            active={!!gender}
+            onClear={() => { setGender(''); doSearch({ gender: '' }); }}
           >
             {({ close }) => (<>
               <div style={{ padding: '10px 16px 6px', borderBottom: '1px solid #E8E0E4' }}>
                 <span style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: '#7A6E72' }}>Gender</span>
               </div>
-              {(bridalSub || groomSub) && (
-                <div style={{ padding: '8px 16px', fontSize: '12px', color: '#7A6E72', background: '#FAF7F2' }}>
-                  Auto selected from category
-                </div>
-              )}
               {['Male', 'Female'].map(g => (
-                <SubItem key={g} label={g} selected={autoGender === g}
-                  onClick={() => {
-                    if (!bridalSub && !groomSub) setGender(gender === g ? '' : g);
-                  }} />
+                <SubItem key={g} label={g} selected={gender === g}
+                  onClick={() => setGender(gender === g ? '' : g)} />
               ))}
               <ApplyBtn onClick={() => { doSearch(); close(); }} />
             </>)}
@@ -416,19 +477,29 @@ export default function BrowsePage() {
             )}
           </Chip>
 
-          {/* SIZE CHIP */}
-          <Chip label={sizeLabel} active={selectedSizes.length > 0} onClear={() => { setSelectedSizes([]); doSearch({ selectedSizes: [] }); }}>
+          {/* DYNAMIC SIZE CHIP */}
+          <Chip label={sizeLabel} active={selectedSizeIds.length > 0} onClear={() => { setSelectedSizeIds([]); doSearch({ selectedSizeIds: [] }); }}>
             {({ close }) => (
               <div style={{ padding: '16px' }}>
                 <p style={{ fontSize: '13px', color: '#7A6E72', marginBottom: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>Select Size</p>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-                  {SIZES.map(size => (
-                    <button key={size}
-                      onClick={() => setSelectedSizes(prev => prev.includes(size) ? prev.filter(s => s !== size) : [...prev, size])}
-                      style={{ width: '50px', height: '46px', border: '1.5px solid', fontSize: '14px', cursor: 'pointer', borderRadius: '8px', fontWeight: selectedSizes.includes(size) ? 600 : 400, background: selectedSizes.includes(size) ? '#B5485A' : 'white', color: selectedSizes.includes(size) ? 'white' : '#1A1218', borderColor: selectedSizes.includes(size) ? '#B5485A' : '#E8E0E4' }}>
-                      {size}
-                    </button>
-                  ))}
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+                  {sizes.map(s => {
+                    const isSelected = selectedSizeIds.includes(s.Size_id);
+                    return (
+                      <button key={s.Size_id}
+                        onClick={() => setSelectedSizeIds(prev => isSelected ? prev.filter(id => id !== s.Size_id) : [...prev, s.Size_id])}
+                        style={{
+                          minWidth: '50px', height: '46px', padding: '0 12px', border: '1.5px solid',
+                          fontSize: '14px', cursor: 'pointer', borderRadius: '8px',
+                          fontWeight: isSelected ? 600 : 400,
+                          background: isSelected ? '#B5485A' : 'white',
+                          color: isSelected ? 'white' : '#1A1218',
+                          borderColor: isSelected ? '#B5485A' : '#E8E0E4'
+                        }}>
+                        {s.SizeName}
+                      </button>
+                    );
+                  })}
                 </div>
                 <button onClick={() => { doSearch(); close(); }}
                   style={{ width: '100%', background: '#1A1218', color: 'white', border: 'none', padding: '11px', fontSize: '13px', cursor: 'pointer', borderRadius: '8px' }}>
@@ -472,6 +543,54 @@ export default function BrowsePage() {
                 <button onClick={() => { doSearch(); close(); }}
                   style={{ width: '100%', background: '#1A1218', color: 'white', border: 'none', padding: '11px', fontSize: '13px', cursor: 'pointer', borderRadius: '8px' }}>
                   Search
+                </button>
+              </div>
+            )}
+          </Chip>
+
+          {/* NEAR ME GPS CHIP */}
+          <Chip
+            label={nearMe ? `📍 Near Me (${maxKm} km)` : '📍 Near Me'}
+            active={nearMe}
+            onClear={() => toggleNearMe()}
+          >
+            {({ close }) => (
+              <div style={{ padding: '16px', width: '240px' }}>
+                <p style={{ fontSize: '14px', fontWeight: 600, color: '#1A1218', marginBottom: '8px' }}>Nearby Dresses (GPS)</p>
+                <p style={{ fontSize: '12px', color: '#7A6E72', marginBottom: '14px' }}>Find dresses near your current location.</p>
+                
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#1A1218', fontWeight: 500, marginBottom: '6px' }}>
+                    <span>Max Distance:</span>
+                    <span style={{ color: '#B5485A', fontWeight: 600 }}>{maxKm} km</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="5"
+                    max="150"
+                    step="5"
+                    value={maxKm}
+                    onChange={(e) => setMaxKm(Number(e.target.value))}
+                    style={{ width: '100%', accentColor: '#B5485A' }}
+                  />
+                </div>
+
+                <button
+                  onClick={() => {
+                    if (!nearMe) {
+                      toggleNearMe();
+                    } else {
+                      doSearch({ maxKm });
+                    }
+                    close();
+                  }}
+                  style={{
+                    width: '100%', background: '#B5485A', color: 'white',
+                    border: 'none', padding: '10px', fontSize: '12px',
+                    cursor: 'pointer', borderRadius: '8px', fontWeight: 500
+                  }}
+                >
+                  {nearMe ? 'Update Distance' : 'Enable Location'}
                 </button>
               </div>
             )}

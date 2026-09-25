@@ -1,14 +1,13 @@
 'use client';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
-export default function HomePage() {
-  const [user, setUser] = useState(null);
+// ============================================================================
+// PAGE: Landing & Home Page (/home)
+// DESCRIPTION:
+//   Hero showcase, Category navigation links, and How It Works guide.
+// ============================================================================
 
-  useEffect(() => {
-    const u = localStorage.getItem('user');
-    if (u) setUser(JSON.parse(u));
-  }, []);
+export default function HomePage() {
 
   const StepCard = ({ icon, title, desc, width = 'auto' }) => (
     <div style={{ textAlign: 'center', width }}>

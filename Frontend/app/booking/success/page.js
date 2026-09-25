@@ -3,10 +3,20 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Suspense } from 'react';
 
-// ── Booking Success Page ──
-// Jab booking confirm hoti hai to yahan redirect hota hai
-// URL mein bookingId, total, dress naam aata hai
-// Example: /booking/success?bookingId=2&total=30000&dress=Maria+B+Red+Bridal+Lehnga
+// ============================================================================
+// PAGE: Booking Success (/booking/success)
+// DESCRIPTION:
+//   Confirmation receipt page shown after successfully placing a dress booking.
+//   Reads bookingId, total amount, and dress name from URL query parameters.
+//
+// QUERY PARAMETERS:
+//   - bookingId: ID of newly created booking in dbo.Bookings
+//   - total: Final amount charged or payable (Rs.)
+//   - dress: Title of the rented dress outfit
+//
+// DATABASE TABLES LINKED:
+//   - dbo.Bookings (BookingId, Status = 0 [Pending])
+// ============================================================================
 
 function SuccessContent() {
   // ── URL se booking details nikalo ──

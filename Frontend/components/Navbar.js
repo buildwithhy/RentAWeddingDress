@@ -4,6 +4,21 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import toast from 'react-hot-toast';
 
+// ============================================================================
+// COMPONENT: Navbar
+// DESCRIPTION:
+//   Global sticky header with responsive mobile drawer navigation:
+//   - Shows Links: Home, Browse Dresses, List Dress, My Rentals, My Bookings
+//   - Shows user status, Owner Credit or Penalty balances
+//   - Login / Logout actions
+//
+// BACKEND API REFERENCES:
+//   - GET /api/bookings/credit/{userId} -> Refresh user credit & penalty balances
+//
+// DATABASE TABLES LINKED:
+//   - dbo.Users (CreditBalance)
+// ============================================================================
+
 export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -11,35 +26,38 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    const u = localStorage.getItem('user');
-    if (u) {
-      try {
-        const parsed = JSON.parse(u);
-        setUser(parsed);
-        // Refresh balances from backend
-        if (parsed.userId) {
-          fetch(`/api/users/${parsed.userId}/profile`)
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-              if (data) {
-                const updated = {
-                  ...parsed,
-                  penaltyBalance: data.PenaltyBalance ?? 0,
-                  ownerCredit: data.OwnerCredit ?? 0,
-                  totalEarnings: data.TotalEarnings ?? 0
-                };
-                setUser(updated);
-                localStorage.setItem('user', JSON.stringify(updated));
-              }
-            })
-            .catch(() => {});
+    const timer = setTimeout(() => {
+      const u = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+      if (u) {
+        try {
+          const parsed = JSON.parse(u);
+          setUser(parsed);
+          // Refresh balance from backend
+          if (parsed.userId) {
+            fetch(`/api/bookings/credit/${parsed.userId}`)
+              .then(r => r.ok ? r.json() : null)
+              .then(data => {
+                if (data) {
+                  const credit = data.CreditBalance ?? 0;
+                  const updated = {
+                    ...parsed,
+                    penaltyBalance: credit < 0 ? Math.abs(credit) : 0,
+                    ownerCredit: credit > 0 ? credit : 0,
+                  };
+                  setUser(updated);
+                  localStorage.setItem('user', JSON.stringify(updated));
+                }
+              })
+              .catch(() => {});
+          }
+        } catch {
+          setUser(null);
         }
-      } catch {
+      } else {
         setUser(null);
       }
-    } else {
-      setUser(null);
-    }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [pathname]);
 
   const logout = () => {

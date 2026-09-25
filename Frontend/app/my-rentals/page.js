@@ -5,6 +5,29 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { getImageUrl } from '@/utils/getImageUrl';
 
+// ============================================================================
+// PAGE: My Rentals (/my-rentals)
+// DESCRIPTION:
+//   Customer Dashboard for tracking outfits rented by the logged-in customer:
+//   - Shows status (Pending, Accepted, Active, Return Pending, Completed, Cancelled)
+//   - Cancel Booking (POST /api/bookings/cancel)
+//   - Reschedule Booking Dates (POST /api/bookings/reschedule)
+//   - Request Return of Outfit (POST /api/rentals/request-return)
+//   - Submit Review and Rating (POST /api/dresses/review)
+//
+// BACKEND API REFERENCES:
+//   - GET  /api/rentals/customer/{id}      -> Fetch customer rentals (RentalsController.GetCustomerRentals)
+//   - POST /api/bookings/cancel            -> Cancel booking (BookingsController.CancelBooking)
+//   - POST /api/bookings/reschedule        -> Reschedule booking dates (BookingsController.RescheduleBooking)
+//   - POST /api/rentals/request-return     -> Request return to owner (RentalsController.RequestReturn)
+//   - POST /api/dresses/review             -> Post rating & review (DressesController.AddReview)
+//
+// DATABASE TABLES LINKED:
+//   - dbo.Bookings (BookingId, CustomerId, DressId, StartDate, EndDate, Status, TotalPrice)
+//   - dbo.Dresses (D_id, Title, RentPrice)
+//   - dbo.Reviews (Review_id, D_id, U_id, Rating, Comment)
+// ============================================================================
+
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 // ─── Status config — Customer View ───
@@ -81,6 +104,133 @@ function ReviewModal({ rental, onClose, onSubmit }) {
   );
 }
 
+// ─── Reschedule Modal ───
+function RescheduleModal({ rental, onClose, onSuccess }) {
+  const [startDate, setStartDate] = useState(rental.StartDate ? rental.StartDate.split('T')[0] : '');
+  const [endDate, setEndDate] = useState(rental.EndDate ? rental.EndDate.split('T')[0] : '');
+  const [loading, setLoading] = useState(false);
+
+  const handleReschedule = async (e) => {
+    e.preventDefault();
+    if (!startDate || !endDate) {
+      toast.error('Please select start and end dates');
+      return;
+    }
+    if (new Date(startDate) > new Date(endDate)) {
+      toast.error('End date must be greater than start date');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const u = JSON.parse(localStorage.getItem('user'));
+      const res = await fetch(`${API}/bookings/reschedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          UserId: u.userId,
+          BookingId: rental.BookingId,
+          StartDate: startDate,
+          EndDate: endDate,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.Message || data || 'Reschedule failed');
+
+      toast.success(data.Message || 'Booking rescheduled successfully!');
+      onSuccess();
+      onClose();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const today = new Date().toISOString().split('T')[0];
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 200,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(26,18,24,0.65)', padding: '20px',
+    }}>
+      <div style={{ background: 'white', width: '100%', maxWidth: '440px', padding: '28px', borderRadius: '4px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '24px', fontWeight: 600, color: '#1A1218' }}>
+            Reschedule Booking
+          </h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#7A6E72' }}>✕</button>
+        </div>
+        <p style={{ color: '#7A6E72', fontSize: '13px', fontStyle: 'italic', marginBottom: '20px' }}>{rental.DressTitle} (Booking #{rental.BookingId})</p>
+
+        <form onSubmit={handleReschedule}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '11px', letterSpacing: '1.5px', textTransform: 'uppercase', color: '#7A6E72', marginBottom: '6px' }}>
+              New Start Date
+            </label>
+            <input
+              type="date"
+              min={today}
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              required
+              style={{
+                width: '100%', padding: '10px 12px', border: '1.5px solid #E2D9D0',
+                borderRadius: '6px', fontSize: '13px', background: '#FAF8F5', boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: '24px' }}>
+            <label style={{ display: 'block', fontSize: '11px', letterSpacing: '1.5px', textTransform: 'uppercase', color: '#7A6E72', marginBottom: '6px' }}>
+              New Return Date
+            </label>
+            <input
+              type="date"
+              min={startDate || today}
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              required
+              style={{
+                width: '100%', padding: '10px 12px', border: '1.5px solid #E2D9D0',
+                borderRadius: '6px', fontSize: '13px', background: '#FAF8F5', boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                flex: 1, padding: '12px', border: '1px solid #D0C8CC',
+                background: 'white', color: '#1A1218', fontSize: '11px',
+                letterSpacing: '2px', textTransform: 'uppercase', cursor: 'pointer'
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                flex: 1, padding: '12px', border: 'none',
+                background: '#1A1218', color: 'white', fontSize: '11px',
+                letterSpacing: '2px', textTransform: 'uppercase', cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.7 : 1
+              }}
+            >
+              {loading ? 'Checking...' : 'Save Dates'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Action Button Component ───
 function ActionBtn({ label, onClick, color = '#1A1218', disabled = false, loading = false }) {
   return (
@@ -108,6 +258,7 @@ export default function MyRentalsPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
   const [reviewRental, setReviewRental] = useState(null);
+  const [rescheduleRental, setRescheduleRental] = useState(null);
 
   useEffect(() => {
     const u = localStorage.getItem('user');
@@ -162,27 +313,25 @@ export default function MyRentalsPage() {
 
     setActionLoading(rental.BookingId);
     try {
-      const res = await fetch(`${API}/rentals/cancel-booking`, {
+      const u = JSON.parse(localStorage.getItem('user'));
+      const res = await fetch(`${API}/bookings/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ BookingId: rental.BookingId }),
+        body: JSON.stringify({
+          UserId: u.userId,
+          BookingId: rental.BookingId,
+        }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.Message || 'Cancellation failed');
 
-      if (data.PenaltyCharged > 0) {
-        toast.error(`Cancelled. 50% Penalty (-Rs. ${data.PenaltyCharged.toLocaleString()}) added to your balance.`);
+      if (data.Penalty > 0 || data.HasPenalty) {
+        toast.success(data.Message || 'Booking cancelled with late penalty.');
       } else {
-        toast.success(data.Message || 'Booking cancelled with free policy.');
+        toast.success(data.Message || 'Booking cancelled successfully.');
       }
 
-      // Refresh user profile in localStorage
-      const u = JSON.parse(localStorage.getItem('user'));
-      if (data.NewPenaltyBalance !== undefined) {
-        u.penaltyBalance = data.NewPenaltyBalance;
-        localStorage.setItem('user', JSON.stringify(u));
-      }
       await fetchRentals(u.userId);
 
     } catch (err) {
@@ -324,14 +473,22 @@ export default function MyRentalsPage() {
                     {/* ─── ACTION BUTTONS based on status ─── */}
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
 
-                      {/* STATUS 0 / 1 — Customer can cancel with Policy check */}
+                      {/* STATUS 0 / 1 — Customer can Reschedule or Cancel with Policy check */}
                       {(rental.Status === 0 || rental.Status === 1) && (
-                        <ActionBtn
-                          label="Cancel Booking"
-                          color="#A32D2D"
-                          loading={isLoading}
-                          onClick={() => cancelBookingWithPolicy(rental)}
-                        />
+                        <>
+                          <ActionBtn
+                            label="Reschedule Dates"
+                            color="#185FA5"
+                            loading={isLoading}
+                            onClick={() => setRescheduleRental(rental)}
+                          />
+                          <ActionBtn
+                            label="Cancel Booking"
+                            color="#A32D2D"
+                            loading={isLoading}
+                            onClick={() => cancelBookingWithPolicy(rental)}
+                          />
+                        </>
                       )}
 
                       {/* STATUS 1 — Accepted: Waiting for owner to pick */}
@@ -424,6 +581,18 @@ export default function MyRentalsPage() {
           rental={reviewRental}
           onClose={() => setReviewRental(null)}
           onSubmit={submitReview}
+        />
+      )}
+
+      {/* Reschedule Modal */}
+      {rescheduleRental && (
+        <RescheduleModal
+          rental={rescheduleRental}
+          onClose={() => setRescheduleRental(null)}
+          onSuccess={() => {
+            const u = JSON.parse(localStorage.getItem('user'));
+            if (u) fetchRentals(u.userId);
+          }}
         />
       )}
 

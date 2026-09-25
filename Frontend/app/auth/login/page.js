@@ -4,6 +4,19 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
+// ============================================================================
+// PAGE: Login (/auth/login)
+// DESCRIPTION:
+//   Authenticates users with phone contact and password.
+//   Saves user session (userId, name, contact) in localStorage.
+//
+// BACKEND API REFERENCES:
+//   - POST /api/auth/login -> Authenticate user credentials (AuthController.Login)
+//
+// DATABASE TABLES LINKED:
+//   - dbo.Users (U_id, Name, Contact, Password)
+// ============================================================================
+
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 export default function LoginPage() {
@@ -182,7 +195,7 @@ export default function LoginPage() {
           </form>
 
           <p style={{ marginTop: '20px', fontSize: '13px', color: '#7A6E72' }}>
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Link href="/auth/register" style={{ color: '#B5485A' }}>
               Sign Up
             </Link>

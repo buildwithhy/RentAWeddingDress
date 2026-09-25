@@ -37,14 +37,22 @@ export const getImageUrl = (input) => {
   }
 
   // Normalize Windows-style backslashes
-  path = path.replace(/\\/g, '/');
+  path = path.replace(/\\/g, '/').trim();
 
   // Strip backend origin (localhost with port or live backend) to use same-origin proxy (/Content/...)
   path = path.replace(/^https?:\/\/(localhost(:\d+)?|127\.0\.0\.1(:\d+)?|dress-backend\.runasp\.net)/i, '');
 
   // If external absolute URL (e.g. cloudinary, unsplash) or data URI, return as-is
-  if ((path.startsWith('http://') || path.startsWith('https://')) && !path.includes('/Content/')) {
+  if ((path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:')) && !path.toLowerCase().includes('/content/')) {
     return path;
+  }
+
+  // If path starts with 'content/' or 'Content/', ensure leading slash and uppercase 'Content'
+  if (path.startsWith('/content/') || path.startsWith('/Content/')) {
+    return '/Content/' + path.substring(9);
+  }
+  if (path.startsWith('content/') || path.startsWith('Content/')) {
+    return '/Content/' + path.substring(8);
   }
 
   // Ensure leading slash

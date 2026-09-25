@@ -22,6 +22,11 @@ const nextConfig = {
       },
     ],
   },
+  // ==========================================================================
+  // BACKEND PROXY REWRITES:
+  // Proxies /api/... and /Content/... requests from Next.js (port 3000) 
+  // to the ASP.NET Web API backend running on IIS Express (port 55351)
+  // ==========================================================================
   async rewrites() {
     return [
       {
@@ -30,6 +35,10 @@ const nextConfig = {
       },
       {
         source: '/Content/:path*',
+        destination: 'http://localhost:55351/Content/:path*',
+      },
+      {
+        source: '/content/:path*',
         destination: 'http://localhost:55351/Content/:path*',
       },
     ];

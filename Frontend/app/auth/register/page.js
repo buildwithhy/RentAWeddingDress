@@ -4,6 +4,18 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
+// ============================================================================
+// PAGE: Register (/auth/register)
+// DESCRIPTION:
+//   Registers new user account with Name, Phone contact, and Password.
+//
+// BACKEND API REFERENCES:
+//   - POST /api/auth/register -> Create new user record (AuthController.Register)
+//
+// DATABASE TABLES LINKED:
+//   - dbo.Users (U_id, Name, Contact, Password, CreditBalance)
+// ============================================================================
+
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 export default function RegisterPage() {

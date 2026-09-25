@@ -4,13 +4,37 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { formatDressAge } from '@/utils/formatters';
 
+// ============================================================================
+// PAGE: Upload Dress (/upload-dress)
+// DESCRIPTION:
+//   Allows dress owners to list a wedding/party outfit for rent:
+//   - Multiple Image Uploads (up to 5 images)
+//   - Dynamic Categories & Subcategories
+//   - Multi-size Selection with individual stock quantities
+//   - Dress Age (Years + Months) & Condition Rating
+//   - GPS Location Detection & Update Shop Location
+//
+// BACKEND API REFERENCES:
+//   - POST /api/dresses/upload-image             -> Upload image file to /Content/Dresses/ (DressesController.UploadImage)
+//   - POST /api/dresses/create                   -> Create dress record (DressesController.CreateDress)
+//   - GET  /api/dresses/categories               -> Get all dress categories (DressesController.GetCategories)
+//   - GET  /api/dresses/categories/{id}/subcategories -> Get subcategories (DressesController.GetSubCategories)
+//   - GET  /api/dresses/sizes                    -> Get all sizes (DressesController.GetSizes)
+//   - POST /api/users/update-shop-location       -> Update GPS for all dresses of owner (UsersController.UpdateShopLocation)
+//
+// DATABASE TABLES LINKED:
+//   - dbo.Dresses (D_id, U_id, Category_id, SubCategory_id, Title, Description, RentPrice, Condition, AgeInMonths, Latitude, Longitude)
+//   - dbo.DressImages (DI_id, D_id, ImgPath)
+//   - dbo.DressSizes (D_id, Size_id, Quantity)
+// ============================================================================
+
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 const OCCASIONS = ['Barat', 'Walima', 'Mehndi', 'Engagement', 'Party', 'Nikkah'];
 
 const CITIES = [
-  'Lahore', 'Karachi', 'Islamabad', 'Rawalpindi', 'Faisalabad',
-  'Multan', 'Peshawar', 'Quetta', 'Gujranwala', 'Sialkot'
+  'Islamabad', 'Rawalpindi', 'Lahore', 'Karachi', 'Faisalabad',
+  'Multan', 'Peshawar', 'Quetta', 'Sialkot', 'Gujranwala'
 ];
 
 const CONDITIONS = [
@@ -22,54 +46,21 @@ const CONDITIONS = [
   { label: '5/10 (Fair)', value: 5 },
 ];
 
-const STATIC_CATEGORIES = [
-  { Category_id: 1, Cname: 'Bridal' },
-  { Category_id: 2, Cname: 'Groom' },
-  { Category_id: 3, Cname: 'Formal' },
-];
-
-const STATIC_SUBS = {
-  1: [
-    { SubCategory_id: 1, SCname: 'Lehnga Choli' },
-    { SubCategory_id: 2, SCname: 'Maxi' },
-    { SubCategory_id: 3, SCname: 'Saree' },
-    { SubCategory_id: 4, SCname: 'Sharara / Gharara' },
-    { SubCategory_id: 5, SCname: 'Shirt With Lehnga' },
-  ],
-  2: [
-    { SubCategory_id: 6, SCname: 'Sherwani' },
-    { SubCategory_id: 7, SCname: 'Kurta Pajama' },
-    { SubCategory_id: 8, SCname: '3-Piece Suits' },
-    { SubCategory_id: 9, SCname: 'Prince Coats' },
-    { SubCategory_id: 10, SCname: 'Waist Coats' },
-  ],
-  3: [
-    { SubCategory_id: 11, SCname: 'Lehnga Choli' },
-    { SubCategory_id: 12, SCname: 'Gowns' },
-    { SubCategory_id: 13, SCname: 'Saris' },
-    { SubCategory_id: 14, SCname: '3-Piece Suits' },
-    { SubCategory_id: 15, SCname: 'Kurta Pajama' },
-  ],
-};
-
-const STATIC_SIZES = [
-  { Size_id: 1, SizeName: 'S' },
-  { Size_id: 2, SizeName: 'M' },
-  { Size_id: 3, SizeName: 'L' },
-  { Size_id: 4, SizeName: 'XL' },
-];
-
 export default function UploadDressPage() {
   const router = useRouter();
   const fileRef = useRef(null);
 
-  const [categories] = useState(STATIC_CATEGORIES);
+  const [categories, setCategories] = useState([]);
   const [subCategories, setSubCategories] = useState([]);
-  const [sizes] = useState(STATIC_SIZES);
+  const [sizes, setSizes] = useState([]);
   const [previews, setPreviews] = useState([]);
   const [uploadedPaths, setUploadedPaths] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [updatingLocation, setUpdatingLocation] = useState(false);
+
+  const [gpsCoords, setGpsCoords] = useState(null);
+  const [gpsStatus, setGpsStatus] = useState('idle'); // 'idle' | 'detecting' | 'success' | 'denied'
 
   // Default: Only Medium (Size_id: 2) selected with 1 copy. S, L, XL are 0 (unselected).
   const [form, setForm] = useState({
@@ -89,25 +80,132 @@ export default function UploadDressPage() {
     ageMonths: '',
   });
 
+  // Auto-detect GPS coordinates on page load
+  const detectGps = () => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setGpsStatus('denied');
+      return;
+    }
+    setGpsStatus('detecting');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGpsStatus('success');
+      },
+      () => {
+        setGpsStatus('denied');
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  };
+
   useEffect(() => {
     const u = localStorage.getItem('user');
     if (!u) {
       toast.error('Please login first');
       router.push('/auth/login');
+      return;
     }
-  }, []);
+    const user = JSON.parse(u);
+
+    // Auto-detect browser GPS
+    detectGps();
+
+    // Check if user already has a saved shop location in DB
+    fetch(`${API}/users/shop-location/${user.userId}`)
+      .then(r => r.json())
+      .then(loc => {
+        if (loc?.Latitude && loc?.Longitude) {
+          setGpsCoords({ lat: loc.Latitude, lng: loc.Longitude });
+          setGpsStatus('success');
+        }
+      })
+      .catch(() => {});
+
+    // Load categories dynamically from backend API
+    fetch(`${API}/dresses/categories`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) setCategories(data);
+      })
+      .catch(() => {});
+
+    // Load sizes dynamically from backend API
+    fetch(`${API}/dresses/sizes`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) setSizes(data);
+      })
+      .catch(() => {});
+  }, [router]);
 
   useEffect(() => {
     if (!form.categoryId) {
       setSubCategories([]);
       return;
     }
-    const subs = STATIC_SUBS[form.categoryId] || [];
-    setSubCategories(subs);
-    if (subs.length > 0 && !subs.some(s => String(s.SubCategory_id) === String(form.subCategoryId))) {
-      setForm(prev => ({ ...prev, subCategoryId: String(subs[0].SubCategory_id) }));
+    fetch(`${API}/dresses/categories/${form.categoryId}/subcategories`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setSubCategories(data);
+          if (!data.some(s => String(s.SubCategory_id) === String(form.subCategoryId))) {
+            setForm(prev => ({ ...prev, subCategoryId: String(data[0].SubCategory_id) }));
+          }
+        } else {
+          setSubCategories([]);
+        }
+      })
+      .catch(() => {
+        setSubCategories([]);
+      });
+  }, [form.categoryId, form.subCategoryId]);
+
+  const updateShopGps = async () => {
+    const u = localStorage.getItem('user');
+    if (!u) return;
+    const user = JSON.parse(u);
+
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser');
+      return;
     }
-  }, [form.categoryId]);
+
+    setUpdatingLocation(true);
+    setGpsStatus('detecting');
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await fetch(`${API}/users/update-shop-location`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              UserId: user.userId,
+              Latitude: pos.coords.latitude,
+              Longitude: pos.coords.longitude,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.Message || 'Location update failed');
+          setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setGpsStatus('success');
+          toast.success(`📍 Shop GPS (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}) set for all dresses!`);
+        } catch (err) {
+          toast.error(err.message);
+          setGpsStatus('denied');
+        } finally {
+          setUpdatingLocation(false);
+        }
+      },
+      () => {
+        toast.error('Could not get GPS coordinates. Check browser permission.');
+        setUpdatingLocation(false);
+        setGpsStatus('denied');
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  };
 
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
 
@@ -192,10 +290,10 @@ export default function UploadDressPage() {
     const user = JSON.parse(localStorage.getItem('user'));
     setSubmitting(true);
     try {
-      const sizesWithQuantity = form.sizeIds.map(id => ({
-        SizeId: Number(id),
-        Quantity: Number(form.sizeQuantities[id]) || 1,
-      }));
+      const sizeStock = {};
+      form.sizeIds.forEach(id => {
+        sizeStock[id] = Number(form.sizeQuantities[id]) || 1;
+      });
 
       const res = await fetch(`${API}/dresses/create`, {
         method: 'POST',
@@ -207,20 +305,56 @@ export default function UploadDressPage() {
           SubCategoryId: Number(form.subCategoryId),
           Gender: form.gender,
           Condition: Number(form.condition),
+          AgeYears: Number(form.ageYears) || 0,
+          AgeMonths: Number(form.ageMonths) || 0,
+          AgeDays: 0,
           RentPrice: Number(form.rentPrice),
           Description: form.description,
           Occasions: form.occasion ? [form.occasion] : [],
           SizeIds: form.sizeIds,
-          SizesWithQuantity: sizesWithQuantity,
-          AgeInMonths: totalAgeMonths,
-          City: form.city,
-          Location: form.location,
+          SizeStock: sizeStock,
           ImagePaths: uploadedPaths,
         }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.Message || 'Upload failed');
+
+      // ✅ AUTOMATICALLY SYNC GPS LOCATION TO BACKEND (Method 1)
+      // Ensures Latitude & Longitude are saved in database table dbo.Dresses
+      try {
+        let latToSync = gpsCoords?.lat;
+        let lngToSync = gpsCoords?.lng;
+
+        if (!latToSync || !lngToSync) {
+          if (typeof window !== 'undefined' && navigator.geolocation) {
+            await new Promise((resolve) => {
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  latToSync = pos.coords.latitude;
+                  lngToSync = pos.coords.longitude;
+                  resolve();
+                },
+                () => resolve(),
+                { timeout: 3000 }
+              );
+            });
+          }
+        }
+
+        if (latToSync && lngToSync) {
+          await fetch(`${API}/users/update-shop-location`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              UserId: user.userId,
+              Latitude: latToSync,
+              Longitude: lngToSync,
+            }),
+          });
+        }
+      } catch {}
+
       toast.success('✨ Dress listed successfully!');
       router.push('/browse');
     } catch (err) {
@@ -325,6 +459,36 @@ export default function UploadDressPage() {
               Cancel
             </button>
             <button
+              type="button"
+              onClick={updateShopGps}
+              disabled={updatingLocation}
+              style={{
+                padding: '9px 16px',
+                background: gpsCoords ? '#EBF5E9' : 'white',
+                border: gpsCoords ? '1px solid #70AD47' : '1px solid #DCD5CE',
+                color: gpsCoords ? '#276A1B' : '#1A1218',
+                fontSize: '11px',
+                letterSpacing: '0.8px',
+                textTransform: 'uppercase',
+                cursor: updatingLocation ? 'not-allowed' : 'pointer',
+                borderRadius: '6px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.15s',
+              }}
+              title="Detects GPS and updates shop location for all your dresses in SQL database"
+            >
+              <span>📍</span>
+              {updatingLocation
+                ? 'Detecting GPS...'
+                : gpsCoords
+                  ? `Shop GPS: ${gpsCoords.lat.toFixed(2)}, ${gpsCoords.lng.toFixed(2)} ✓`
+                  : 'Set Shop GPS'}
+            </button>
+            <button
+              type="button"
               onClick={handleSubmit}
               disabled={submitting}
               style={{
@@ -603,7 +767,14 @@ export default function UploadDressPage() {
               </div>
 
               <div>
-                <label style={labelStyle}>Area / Neighborhood / Landmark</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label style={{ ...labelStyle, marginBottom: 0 }}>Area / Neighborhood</label>
+                  {gpsCoords && (
+                    <span style={{ fontSize: '10px', color: '#2E7D32', fontWeight: 600 }}>
+                      📍 GPS Active ({gpsCoords.lat.toFixed(2)}, {gpsCoords.lng.toFixed(2)})
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   placeholder="e.g. Gulberg III, DHA Phase 5, F-7"
